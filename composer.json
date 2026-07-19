@@ -1,13 +1,10 @@
 {
     "name": "phpnomad/encryption",
-    "description": "Interface-driven libsodium encryption primitives for PHP — AEAD (XChaCha20-Poly1305) authenticated encryption, versioned keys with rotation, and framework-agnostic field-level encryption.",
+    "description": "encryption contracts + field-level encryption for PHPNomad (bring your own cipher via an integration)",
     "type": "library",
     "keywords": [
         "encryption",
-        "libsodium",
-        "sodium",
-        "aead",
-        "xchacha20poly1305",
+        "contracts",
         "cryptography",
         "field-encryption",
         "key-rotation",
@@ -23,8 +20,7 @@
         }
     ],
     "require": {
-        "php": ">=8.2",
-        "ext-sodium": "*"
+        "php": ">=8.2"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.5 || ^11.0"

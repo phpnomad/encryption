@@ -5,7 +5,7 @@ namespace PHPNomad\Encryption\Tests\Unit;
 use PHPNomad\Encryption\Exceptions\DecryptionFailedException;
 use PHPNomad\Encryption\Providers\ArrayKeyProvider;
 use PHPNomad\Encryption\Services\FieldEncrypter;
-use PHPNomad\Encryption\Strategies\SodiumEncryptionStrategy;
+use PHPNomad\Encryption\Tests\Fakes\ReversibleFakeStrategy;
 use PHPNomad\Encryption\ValueObjects\EncryptedValue;
 use PHPUnit\Framework\TestCase;
 
@@ -13,7 +13,9 @@ class FieldEncrypterTest extends TestCase
 {
     private function encrypter(): FieldEncrypter
     {
-        $strategy = new SodiumEncryptionStrategy(new ArrayKeyProvider([1 => random_bytes(32)]));
+        // The contract package is cipher-agnostic; exercise it against an
+        // in-package fake so these tests carry no ext-sodium dependency.
+        $strategy = new ReversibleFakeStrategy(new ArrayKeyProvider([1 => random_bytes(32)]));
 
         return new FieldEncrypter($strategy, ['access_token', 'refresh_token']);
     }
