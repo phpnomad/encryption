@@ -76,16 +76,9 @@ Generate a base64 key for your environment:
 php -r 'echo base64_encode(sodium_crypto_aead_xchacha20poly1305_ietf_keygen()), "\n";'
 ```
 
-### Loading the key from the environment
-
-```php
-use PHPNomad\Encryption\Providers\Base64EnvKeyProvider;
-use PHPNomad\Sodium\EncryptionIntegration\Strategies\SodiumEncryptionStrategy;
-
-// Reads a base64-encoded 32-byte key from APP_MASTER_KEY (file fallback optional).
-$keys = new Base64EnvKeyProvider('APP_MASTER_KEY', __DIR__ . '/.master_key');
-$encryption = new SodiumEncryptionStrategy($keys);
-```
+Where keys come from — an env var, a file, a KMS — is your application's
+concern: implement `Interfaces\KeyProvider` (two methods) however you load them.
+`ArrayKeyProvider` is the in-memory primitive when you already hold the raw keys.
 
 ## Associated data (AEAD context)
 
@@ -126,7 +119,7 @@ $encryption->decrypt($oldValue);  // still decrypts against v1
 To fully migrate, decrypt each stored value and re-encrypt it (the new
 `EncryptedValue` carries `keyVersion = 2`), then retire the old key once nothing
 references it. Multiple keys can also live behind separate providers via
-`KeyRing` (e.g. one `Base64EnvKeyProvider` per env var).
+`KeyRing` (one `KeyProvider` per version).
 
 ## Writing a cipher integration
 
@@ -160,7 +153,6 @@ owned by the strategy, not this package — the contract names no ciphers. See
 | `Interfaces\KeyProvider` | `getKey(version): string` / `currentVersion(): int` |
 | `Models\EncryptedValue` | immutable data: ciphertext + nonce + keyVersion + opaque cipher tag; getters only |
 | `Providers\ArrayKeyProvider` | in-memory versioned key ring |
-| `Providers\Base64EnvKeyProvider` | base64 key from env var / file |
 | `Providers\KeyRing` | compose per-version providers |
 | `Exceptions\*` | `EncryptionException`, `DecryptionFailedException`, `KeyNotFoundException` |
 | *cipher strategy* | provided by an integration, e.g. `phpnomad/sodium-integration` |

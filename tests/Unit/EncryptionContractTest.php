@@ -4,7 +4,6 @@ namespace PHPNomad\Encryption\Tests\Unit;
 
 use PHPNomad\Encryption\Exceptions\DecryptionFailedException;
 use PHPNomad\Encryption\Providers\ArrayKeyProvider;
-use PHPNomad\Encryption\Providers\Base64EnvKeyProvider;
 use PHPNomad\Encryption\Providers\KeyRing;
 use PHPNomad\Encryption\Tests\Fakes\ReversibleFakeStrategy;
 use PHPNomad\Encryption\Models\EncryptedValue;
@@ -94,33 +93,27 @@ class EncryptionContractTest extends TestCase
 
     public function test_key_rotation_via_key_ring_of_per_version_providers(): void
     {
-        $v1 = base64_encode(random_bytes(32));
-        $v2 = base64_encode(random_bytes(32));
+        $v1 = random_bytes(32);
+        $v2 = random_bytes(32);
 
-        $_ENV['APP_KEY_V1'] = $v1;
-        $_ENV['APP_KEY_V2'] = $v2;
+        // v1 is current: seal a value against a single-version ring.
+        $ringV1 = new KeyRing([1 => new ArrayKeyProvider([1 => $v1], 1)], 1);
+        $sealedUnderV1 = (new ReversibleFakeStrategy($ringV1))->encrypt('old');
+        $this->assertSame(1, $sealedUnderV1->getKeyVersion());
 
-        try {
-            // v1 is current: seal a value against a single-version ring.
-            $ringV1 = new KeyRing([1 => new Base64EnvKeyProvider('APP_KEY_V1', null, 1)], 1);
-            $sealedUnderV1 = (new ReversibleFakeStrategy($ringV1))->encrypt('old');
-            $this->assertSame(1, $sealedUnderV1->getKeyVersion());
+        // Compose both versions behind one ring, each version owned by its own
+        // provider, v2 current.
+        $ring = new KeyRing([
+            1 => new ArrayKeyProvider([1 => $v1], 1),
+            2 => new ArrayKeyProvider([2 => $v2], 2),
+        ], 2);
+        $rotated = new ReversibleFakeStrategy($ring);
 
-            // Compose both versions behind one ring, v2 current.
-            $ring = new KeyRing([
-                1 => new Base64EnvKeyProvider('APP_KEY_V1', null, 1),
-                2 => new Base64EnvKeyProvider('APP_KEY_V2', null, 2),
-            ], 2);
-            $rotated = new ReversibleFakeStrategy($ring);
+        $sealedUnderV2 = $rotated->encrypt('new');
+        $this->assertSame(2, $sealedUnderV2->getKeyVersion());
 
-            $sealedUnderV2 = $rotated->encrypt('new');
-            $this->assertSame(2, $sealedUnderV2->getKeyVersion());
-
-            // New writes use v2; the old v1 value still decrypts via the ring.
-            $this->assertSame('new', $rotated->decrypt($sealedUnderV2));
-            $this->assertSame('old', $rotated->decrypt($sealedUnderV1));
-        } finally {
-            unset($_ENV['APP_KEY_V1'], $_ENV['APP_KEY_V2']);
-        }
+        // New writes use v2; the old v1 value still decrypts via the ring.
+        $this->assertSame('new', $rotated->decrypt($sealedUnderV2));
+        $this->assertSame('old', $rotated->decrypt($sealedUnderV1));
     }
 }

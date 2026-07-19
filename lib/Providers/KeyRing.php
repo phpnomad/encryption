@@ -8,9 +8,8 @@ use PHPNomad\Encryption\Interfaces\KeyProvider;
 /**
  * Composes several single-version {@see KeyProvider}s into one versioned ring.
  *
- * Useful when each key version lives behind its own provider — for example one
- * {@see Base64EnvKeyProvider} per environment variable (APP_KEY_V1, APP_KEY_V2)
- * during a rotation. Delegates each version to the provider that owns it.
+ * Useful when each key version lives behind its own provider during a rotation.
+ * Delegates each version to the provider that owns it.
  */
 final class KeyRing implements KeyProvider
 {
