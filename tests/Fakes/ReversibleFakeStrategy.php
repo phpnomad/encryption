@@ -5,7 +5,7 @@ namespace PHPNomad\Encryption\Tests\Fakes;
 use PHPNomad\Encryption\Exceptions\DecryptionFailedException;
 use PHPNomad\Encryption\Interfaces\EncryptionStrategy;
 use PHPNomad\Encryption\Interfaces\KeyProvider;
-use PHPNomad\Encryption\ValueObjects\EncryptedValue;
+use PHPNomad\Encryption\Models\EncryptedValue;
 
 /**
  * A dependency-free, fully reversible {@see EncryptionStrategy} used to exercise
@@ -13,8 +13,7 @@ use PHPNomad\Encryption\ValueObjects\EncryptedValue;
  *
  * It is NOT cryptographically meaningful — it exists only to satisfy the
  * contract's observable guarantees so the framework-agnostic pieces
- * (FieldEncrypter, EncryptedValue, the key providers, rotation) can be tested in
- * isolation:
+ * (EncryptedValue, the key providers, rotation) can be tested in isolation:
  *
  *  - Round-trips plaintext through a keystream XOR (confidentiality stand-in).
  *  - Authenticates the ciphertext AND the caller-supplied $context with an

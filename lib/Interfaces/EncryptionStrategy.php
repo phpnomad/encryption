@@ -4,7 +4,7 @@ namespace PHPNomad\Encryption\Interfaces;
 
 use PHPNomad\Encryption\Exceptions\DecryptionFailedException;
 use PHPNomad\Encryption\Exceptions\EncryptionException;
-use PHPNomad\Encryption\ValueObjects\EncryptedValue;
+use PHPNomad\Encryption\Models\EncryptedValue;
 
 /**
  * Contract for a symmetric encryption strategy.

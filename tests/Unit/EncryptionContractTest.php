@@ -7,7 +7,7 @@ use PHPNomad\Encryption\Providers\ArrayKeyProvider;
 use PHPNomad\Encryption\Providers\Base64EnvKeyProvider;
 use PHPNomad\Encryption\Providers\KeyRing;
 use PHPNomad\Encryption\Tests\Fakes\ReversibleFakeStrategy;
-use PHPNomad\Encryption\ValueObjects\EncryptedValue;
+use PHPNomad\Encryption\Models\EncryptedValue;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -70,16 +70,6 @@ class EncryptionContractTest extends TestCase
 
         $this->expectException(DecryptionFailedException::class);
         $this->strategy(new ArrayKeyProvider([1 => random_bytes(32)]))->decrypt($encrypted);
-    }
-
-    public function test_serialized_value_survives_a_round_trip_through_a_column(): void
-    {
-        $strategy = $this->strategy();
-
-        $column = $strategy->encrypt('secret', 'ctx')->toString();
-
-        $this->assertTrue(EncryptedValue::isEncryptedString($column));
-        $this->assertSame('secret', $strategy->decrypt(EncryptedValue::fromString($column), 'ctx'));
     }
 
     public function test_key_rotation_via_array_key_provider(): void

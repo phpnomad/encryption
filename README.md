@@ -1,9 +1,11 @@
 # phpnomad/encryption
 
-Encryption **contracts** and framework-agnostic **field-level encryption** for
-PHPNomad — bring your own cipher via an integration package. This package holds
-only interfaces, value objects, key providers, and the field/attribute helpers.
-It has no cipher dependency (no `ext-sodium`, no framework, no ORM) — just PHP.
+Encryption **contracts** for PHPNomad — bring your own cipher via an integration
+package. This package holds only the strategy and key-provider interfaces, the
+immutable encrypted-value model, the key providers, and the exception types. It
+makes **no assumption about how you store or transport an encrypted value** — no
+serialization format, no column shape. It has no cipher dependency (no
+`ext-sodium`, no framework, no ORM) — just PHP.
 
 The default cipher lives in a separate integration:
 **[`phpnomad/sodium-integration`](https://github.com/phpnomad/sodium-integration)**
@@ -15,9 +17,8 @@ The default cipher lives in a separate integration:
   context (associated data), so a value copied elsewhere won't decrypt.
 - **Key rotation built in.** Keys are versioned; encrypt with the current
   version, decrypt against whatever version sealed the data.
-- **Field-level helper.** `FieldEncrypter` / `EncryptsFields` do
-  encrypt-on-write / decrypt-on-read for marked fields of a plain array — wire it
-  into any storage layer, over any strategy.
+- **Storage-agnostic.** `EncryptedValue` is pure data — ciphertext, nonce, key
+  version, and an opaque cipher tag. How you persist it is entirely yours.
 
 ## Requirements
 
@@ -30,14 +31,14 @@ The default cipher lives in a separate integration:
 composer require phpnomad/encryption phpnomad/sodium-integration
 ```
 
-`phpnomad/encryption` gives you the contracts and helpers;
-`phpnomad/sodium-integration` gives you the `SodiumEncryptionStrategy` to wire in.
+`phpnomad/encryption` gives you the contracts; `phpnomad/sodium-integration`
+gives you the `SodiumEncryptionStrategy` to wire in.
 
 ## Quickstart
 
 ```php
 use PHPNomad\Encryption\Providers\ArrayKeyProvider;
-use PHPNomad\Encryption\ValueObjects\EncryptedValue;
+use PHPNomad\Encryption\Models\EncryptedValue;
 use PHPNomad\Sodium\EncryptionIntegration\Strategies\SodiumEncryptionStrategy;
 
 // A key ring holding one 32-byte key at version 1.
@@ -48,13 +49,24 @@ $encryption = new SodiumEncryptionStrategy($keys);
 
 $sealed = $encryption->encrypt('sk-live-super-secret');
 
-// Store it. Either as a compact self-describing string...
-$column = $sealed->toString();              // "enc:1:xchacha20poly1305_ietf:1:<nonce>:<ciphertext>"
-// ...or spread across dedicated columns.
-$row = $sealed->toArray();                  // ['ciphertext' => ..., 'nonce' => ..., 'keyVersion' => 1, 'cipher' => ...]
+// Persist it however your storage layer prefers — the value is pure data, so the
+// shape is yours. For example, spread across columns (base64 for text columns):
+$row = [
+    'ciphertext'  => base64_encode($sealed->getCiphertext()),
+    'nonce'       => base64_encode($sealed->getNonce()),
+    'key_version' => $sealed->getKeyVersion(),
+    'cipher'      => $sealed->getCipher(),
+];
 
-// Later:
-$plaintext = $encryption->decrypt(EncryptedValue::fromString($column));
+// Later — rebuild the value from your stored fields and decrypt:
+$restored = new EncryptedValue(
+    base64_decode($row['ciphertext']),
+    base64_decode($row['nonce']),
+    (int) $row['key_version'],
+    $row['cipher'],
+);
+
+$plaintext = $encryption->decrypt($restored);
 // => "sk-live-super-secret"
 ```
 
@@ -89,58 +101,9 @@ $encryption->decrypt($sealed, "tenant:99:column:access_token"); // throws Decryp
 ```
 
 This turns an encrypted-value swap between rows or columns from a silent success
-into a hard failure.
-
-## Field-level encryption
-
-`FieldEncrypter` transparently encrypts a fixed set of fields on an associative
-array and decrypts them on the way back — no storage coupling, and cipher-agnostic
-(pass any `EncryptionStrategy`). Each field is bound to its own AEAD context
-(`"{context}:{field}"`), so values can't be swapped between columns.
-
-```php
-use PHPNomad\Encryption\Services\FieldEncrypter;
-
-$fields = new FieldEncrypter($encryption, ['access_token', 'refresh_token']);
-
-// On write:
-$row = $fields->encryptRow([
-    'id'            => 5,
-    'access_token'  => 'at-123',
-    'refresh_token' => 'rt-456',
-    'label'         => 'GitHub',       // untouched
-], context: "connection:5");
-
-// On read:
-$row = $fields->decryptRow($row, context: "connection:5");
-```
-
-`encryptRow()` is idempotent (already-encrypted and `null` values are left
-alone), so it's safe on partial updates.
-
-Prefer a trait? `EncryptsFields` wires the same behavior into a datastore adapter
-or repository:
-
-```php
-use PHPNomad\Encryption\Interfaces\EncryptionStrategy;
-use PHPNomad\Encryption\Traits\EncryptsFields;
-
-final class TokenRepository
-{
-    use EncryptsFields;
-
-    public function __construct(private EncryptionStrategy $encryption) {}
-
-    protected function encryptionStrategy(): EncryptionStrategy { return $this->encryption; }
-    protected function encryptedFields(): array { return ['access_token', 'refresh_token']; }
-
-    public function save(array $attributes): void
-    {
-        $attributes = $this->encryptAttributes($attributes, context: 'connection:' . $attributes['id']);
-        // ...persist $attributes...
-    }
-}
-```
+into a hard failure. If you encrypt several fields on one record, give each its
+own context (e.g. `"record:{id}:{field}"`) so ciphertexts can't be swapped
+between columns.
 
 ## Key rotation
 
@@ -167,23 +130,27 @@ references it. Multiple keys can also live behind separate providers via
 
 ## Writing a cipher integration
 
-Implement `Interfaces\EncryptionStrategy` and return an `EncryptedValue`:
+Implement `Interfaces\EncryptionStrategy` and return an `EncryptedValue`, stamping
+your own opaque cipher discriminator so decrypt-time can recognize it:
 
 ```php
 use PHPNomad\Encryption\Interfaces\EncryptionStrategy;
-use PHPNomad\Encryption\ValueObjects\EncryptedValue;
+use PHPNomad\Encryption\Models\EncryptedValue;
 
 final class MyCipherStrategy implements EncryptionStrategy
 {
-    public function encrypt(string $plaintext, string $context = ''): EncryptedValue { /* ... */ }
+    public const CIPHER = 'my-cipher-v1';
+
+    public function encrypt(string $plaintext, string $context = ''): EncryptedValue { /* ...return new EncryptedValue($ct, $nonce, $version, self::CIPHER) */ }
     public function decrypt(EncryptedValue $value, string $context = ''): string { /* ... */ }
 }
 ```
 
 The contract requires that decryption fail (throw `DecryptionFailedException`) on
 a wrong key, a mismatched `$context`, or tampered bytes, and that it decrypt
-against the key version recorded on the value. See `phpnomad/sodium-integration`
-for the reference implementation.
+against the key version recorded on the value. The `cipher` discriminator is
+owned by the strategy, not this package — the contract names no ciphers. See
+`phpnomad/sodium-integration` for the reference implementation.
 
 ## API at a glance
 
@@ -191,12 +158,10 @@ for the reference implementation.
 | --- | --- |
 | `Interfaces\EncryptionStrategy` | `encrypt(string, context): EncryptedValue` / `decrypt(EncryptedValue, context): string` |
 | `Interfaces\KeyProvider` | `getKey(version): string` / `currentVersion(): int` |
-| `ValueObjects\EncryptedValue` | ciphertext + nonce + keyVersion + cipher; `toArray`/`fromArray`, `toString`/`fromString` |
+| `Models\EncryptedValue` | immutable data: ciphertext + nonce + keyVersion + opaque cipher tag; getters only |
 | `Providers\ArrayKeyProvider` | in-memory versioned key ring |
 | `Providers\Base64EnvKeyProvider` | base64 key from env var / file |
 | `Providers\KeyRing` | compose per-version providers |
-| `Services\FieldEncrypter` | encrypt/decrypt marked array fields |
-| `Traits\EncryptsFields` | field encryption mixin for repositories/adapters |
 | `Exceptions\*` | `EncryptionException`, `DecryptionFailedException`, `KeyNotFoundException` |
 | *cipher strategy* | provided by an integration, e.g. `phpnomad/sodium-integration` |
 
